@@ -228,7 +228,7 @@ def test_get_cleaning_mode_parameters_unsupported() -> None:
 
 
 def test_get_cleaning_mode_parameters_invalid_name() -> None:
-    """Test invalid cleaning mode names raise a Roborock exception."""
+    """Test invalid cleaning mode names raise RoborockUnsupportedFeature."""
     status_trait = _create_cleaning_mode_status_trait()
     with pytest.raises(RoborockUnsupportedFeature, match="not supported"):
         status_trait.get_cleaning_mode_parameters("invalid_mode")
