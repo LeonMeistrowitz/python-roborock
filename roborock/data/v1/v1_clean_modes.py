@@ -253,11 +253,12 @@ def get_current_cleaning_mode(
         return CleaningModes.SMART_MODE
     if is_mode_customized(clean_mode, water_mode, mop_mode):
         return CleaningModes.CUSTOM
-    try:
-        if clean_mode == get_mop_only_vacuum_mode(features).code:
-            return CleaningModes.MOP
-    except RoborockUnsupportedFeature:
-        pass
+    if water_mode != WaterModes.OFF.code:
+        try:
+            if clean_mode == get_mop_only_vacuum_mode(features).code:
+                return CleaningModes.MOP
+        except RoborockUnsupportedFeature:
+            pass
     if water_mode == WaterModes.OFF.code:
         return CleaningModes.VACUUM
     return CleaningModes.VAC_AND_MOP

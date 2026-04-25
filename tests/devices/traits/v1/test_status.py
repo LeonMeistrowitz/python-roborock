@@ -39,6 +39,7 @@ def _create_cleaning_mode_status_trait(**feature_overrides: bool) -> StatusTrait
     features.is_support_water_mode = True
     features.is_pure_clean_mop_supported = True
     features.is_customized_clean_supported = True
+    features.is_clean_route_setting_supported = True
     for feature_name, value in feature_overrides.items():
         setattr(features, feature_name, value)
     return StatusTrait(cast(DeviceFeaturesTrait, features), region="us")
