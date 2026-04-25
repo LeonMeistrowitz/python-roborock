@@ -38,11 +38,11 @@ class StatusTrait(StatusV2, common.V1TraitMixin):
     - Water Mode
     - Mop Route
 
-    You should call the _options() version of the attribute to know which are
-    supported for your device (i.e. fan_speed_options())
-    Then you can call the _mapping to convert an int value to the actual Enum.
-    (i.e. fan_speed_mapping())
-    You can call the _name property to get the str value of the enum. (i.e. fan_speed_name)
+    You should use the _options version of the attribute to know which are
+    supported for your device (i.e. fan_speed_options)
+    Then you can use the _mapping to convert an int value to the actual Enum.
+    (i.e. fan_speed_mapping)
+    You can use the _name property to get the str value of the enum. (i.e. fan_speed_name)
 
     """
 

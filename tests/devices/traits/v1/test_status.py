@@ -41,6 +41,8 @@ def _create_cleaning_mode_status_trait(**feature_overrides: bool) -> StatusTrait
     features.is_customized_clean_supported = True
     features.is_clean_route_setting_supported = True
     for feature_name, value in feature_overrides.items():
+        if not hasattr(features, feature_name):
+            raise AttributeError(f"Unknown DeviceFeatures override: {feature_name}")
         setattr(features, feature_name, value)
     return StatusTrait(cast(DeviceFeaturesTrait, features), region="us")
 
@@ -301,6 +303,33 @@ def test_get_cleaning_mode_parameters_without_clean_route_setting() -> None:
         {
             "fan_power": VacuumModes.OFF.code,
             "water_box_mode": WaterModes.STANDARD.code,
+        }
+    ]
+
+
+def test_get_cleaning_mode_parameters_water_slide_device() -> None:
+    """Water-slide devices should use a slide-compatible water code, not 202."""
+    status_trait = _create_cleaning_mode_status_trait(is_water_slide_mode_supported=True)
+
+    assert status_trait.get_cleaning_mode_parameters(CleaningModes.VACUUM) == [
+        {
+            "fan_power": VacuumModes.BALANCED.code,
+            "water_box_mode": WaterModes.OFF.code,
+            "mop_mode": CleanRoutes.STANDARD.code,
+        }
+    ]
+    assert status_trait.get_cleaning_mode_parameters(CleaningModes.VAC_AND_MOP) == [
+        {
+            "fan_power": VacuumModes.BALANCED.code,
+            "water_box_mode": WaterModes.PURE_WATER_FLOW_MIDDLE.code,
+            "mop_mode": CleanRoutes.STANDARD.code,
+        }
+    ]
+    assert status_trait.get_cleaning_mode_parameters(CleaningModes.MOP) == [
+        {
+            "fan_power": VacuumModes.OFF.code,
+            "water_box_mode": WaterModes.PURE_WATER_FLOW_MIDDLE.code,
+            "mop_mode": CleanRoutes.STANDARD.code,
         }
     ]
 
