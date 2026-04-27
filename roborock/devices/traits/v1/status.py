@@ -1,7 +1,7 @@
 from functools import cached_property
 
 from roborock import (
-    CleaningModes,
+    CleaningMode,
     CleanRoutes,
     StatusV2,
     VacuumModes,
@@ -13,6 +13,7 @@ from roborock import (
     get_current_cleaning_mode,
     get_water_mode_mapping,
     get_water_modes,
+    resolve_cleaning_mode,
 )
 from roborock.roborock_typing import RoborockCommand
 
@@ -80,7 +81,7 @@ class StatusTrait(StatusV2, common.V1TraitMixin):
         return {route.code: route.value for route in self.mop_route_options}
 
     @cached_property
-    def cleaning_mode_options(self) -> list[CleaningModes]:
+    def cleaning_mode_options(self) -> list[CleaningMode]:
         return get_cleaning_mode_options(self._device_features_trait)
 
     @property
@@ -102,7 +103,7 @@ class StatusTrait(StatusV2, common.V1TraitMixin):
         return self.mop_route_mapping.get(self.mop_mode)
 
     @property
-    def current_cleaning_mode(self) -> CleaningModes | None:
+    def current_cleaning_mode(self) -> CleaningMode | None:
         return get_current_cleaning_mode(
             clean_mode=self.fan_power,
             water_mode=self.water_box_mode,
@@ -111,18 +112,14 @@ class StatusTrait(StatusV2, common.V1TraitMixin):
         )
 
     @property
-    def cleaning_mode_name(self) -> str | None:
+    def current_cleaning_mode_name(self) -> str | None:
         if (cleaning_mode := self.current_cleaning_mode) is None:
             return None
         return cleaning_mode.value
 
-    def get_cleaning_mode_parameters(self, cleaning_mode: str | CleaningModes) -> list[dict[str, int]]:
-        """Get the RPC payload for the selected high-level cleaning mode."""
-        return get_cleaning_mode_parameters(cleaning_mode, self._device_features_trait)
-
-    async def set_cleaning_mode(self, cleaning_mode: str | CleaningModes) -> None:
-        """Set the high-level cleaning mode."""
+    async def set_cleaning_mode(self, cleaning_mode: str | CleaningMode) -> None:
+        """Set the preferred high-level cleaning mode for the device."""
         await self.rpc_channel.send_command(
             RoborockCommand.SET_CLEAN_MOTOR_MODE,
-            params=self.get_cleaning_mode_parameters(cleaning_mode),
+            params=get_cleaning_mode_parameters(resolve_cleaning_mode(cleaning_mode), self._device_features_trait),
         )

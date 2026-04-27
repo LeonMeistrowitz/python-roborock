@@ -5,7 +5,15 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from roborock import CleaningModes, CleanRoutes, VacuumModes, WaterModes
+from roborock import (
+    CleaningMode,
+    CleanRoutes,
+    VacuumModes,
+    WaterModes,
+    get_cleaning_mode_parameters,
+    get_current_cleaning_mode,
+    resolve_cleaning_mode,
+)
 from roborock.data import SHORT_MODEL_TO_ENUM
 from roborock.data.v1 import (
     RoborockStateCode,
@@ -112,10 +120,10 @@ def test_cleaning_mode_options() -> None:
     """Test the high-level cleaning mode options for the device."""
     status_trait = _create_cleaning_mode_status_trait()
     assert status_trait.cleaning_mode_options == [
-        CleaningModes.VACUUM,
-        CleaningModes.VAC_AND_MOP,
-        CleaningModes.MOP,
-        CleaningModes.CUSTOM,
+        CleaningMode.VACUUM,
+        CleaningMode.VAC_AND_MOP,
+        CleaningMode.MOP,
+        CleaningMode.CUSTOM,
     ]
 
 
@@ -126,31 +134,31 @@ def test_cleaning_mode_options() -> None:
             VacuumModes.BALANCED.code,
             WaterModes.STANDARD.code,
             CleanRoutes.STANDARD.code,
-            CleaningModes.VAC_AND_MOP,
+            CleaningMode.VAC_AND_MOP,
         ),
         (
             VacuumModes.BALANCED.code,
             WaterModes.OFF.code,
             CleanRoutes.STANDARD.code,
-            CleaningModes.VACUUM,
+            CleaningMode.VACUUM,
         ),
         (
             VacuumModes.OFF.code,
             WaterModes.STANDARD.code,
             CleanRoutes.STANDARD.code,
-            CleaningModes.MOP,
+            CleaningMode.MOP,
         ),
         (
             VacuumModes.CUSTOMIZED.code,
             WaterModes.STANDARD.code,
             CleanRoutes.STANDARD.code,
-            CleaningModes.CUSTOM,
+            CleaningMode.CUSTOM,
         ),
         (
             VacuumModes.BALANCED.code,
             WaterModes.SMART_MODE.code,
             CleanRoutes.STANDARD.code,
-            CleaningModes.SMART_MODE,
+            CleaningMode.SMART_MODE,
         ),
     ],
 )
@@ -158,7 +166,7 @@ def test_current_cleaning_mode(
     fan_power: int,
     water_box_mode: int,
     mop_mode: int,
-    expected_mode: CleaningModes,
+    expected_mode: CleaningMode,
 ) -> None:
     """Test the current high-level cleaning mode classification."""
     status_trait = _create_cleaning_mode_status_trait(is_smart_clean_mode_set_supported=True)
@@ -167,7 +175,7 @@ def test_current_cleaning_mode(
     status_trait.mop_mode = mop_mode
 
     assert status_trait.current_cleaning_mode == expected_mode
-    assert status_trait.cleaning_mode_name == expected_mode.value
+    assert status_trait.current_cleaning_mode_name == expected_mode.value
 
 
 def test_current_cleaning_mode_with_brush_up_mop() -> None:
@@ -177,7 +185,22 @@ def test_current_cleaning_mode_with_brush_up_mop() -> None:
     status_trait.water_box_mode = WaterModes.STANDARD.code
     status_trait.mop_mode = CleanRoutes.STANDARD.code
 
-    assert status_trait.current_cleaning_mode == CleaningModes.MOP
+    assert status_trait.current_cleaning_mode == CleaningMode.MOP
+
+
+def test_current_cleaning_mode_accepts_enums() -> None:
+    """Test direct enum inputs are resolved before classification."""
+    status_trait = _create_cleaning_mode_status_trait(is_smart_clean_mode_set_supported=True)
+
+    assert (
+        get_current_cleaning_mode(
+            clean_mode=VacuumModes.BALANCED,
+            water_mode=WaterModes.SMART_MODE,
+            mop_mode=CleanRoutes.STANDARD,
+            features=status_trait._device_features_trait,
+        )
+        == CleaningMode.SMART_MODE
+    )
 
 
 def test_current_cleaning_mode_none() -> None:
@@ -185,7 +208,7 @@ def test_current_cleaning_mode_none() -> None:
     status_trait = _create_cleaning_mode_status_trait()
     status_trait.fan_power = None
     assert status_trait.current_cleaning_mode is None
-    assert status_trait.cleaning_mode_name is None
+    assert status_trait.current_cleaning_mode_name is None
 
 
 def test_current_cleaning_mode_without_mop_route_status() -> None:
@@ -198,20 +221,20 @@ def test_current_cleaning_mode_without_mop_route_status() -> None:
     status_trait.water_box_mode = WaterModes.OFF.code
     status_trait.mop_mode = None
 
-    assert status_trait.current_cleaning_mode == CleaningModes.VACUUM
+    assert status_trait.current_cleaning_mode == CleaningMode.VACUUM
 
 
 def test_get_cleaning_mode_parameters() -> None:
     """Test payload generation for supported high-level cleaning modes."""
     status_trait = _create_cleaning_mode_status_trait()
-    assert status_trait.get_cleaning_mode_parameters(CleaningModes.VACUUM) == [
+    assert get_cleaning_mode_parameters(CleaningMode.VACUUM, status_trait._device_features_trait) == [
         {
             "fan_power": VacuumModes.BALANCED.code,
             "water_box_mode": WaterModes.OFF.code,
             "mop_mode": CleanRoutes.STANDARD.code,
         }
     ]
-    assert status_trait.get_cleaning_mode_parameters("custom") == [
+    assert get_cleaning_mode_parameters(resolve_cleaning_mode("custom"), status_trait._device_features_trait) == [
         {
             "fan_power": VacuumModes.CUSTOMIZED.code,
             "water_box_mode": WaterModes.CUSTOMIZED.code,
@@ -224,14 +247,13 @@ def test_get_cleaning_mode_parameters_unsupported() -> None:
     """Test unsupported cleaning modes raise a clear error."""
     status_trait = _create_cleaning_mode_status_trait()
     with pytest.raises(RoborockUnsupportedFeature, match="not supported"):
-        status_trait.get_cleaning_mode_parameters(CleaningModes.SMART_MODE)
+        get_cleaning_mode_parameters(CleaningMode.SMART_MODE, status_trait._device_features_trait)
 
 
 def test_get_cleaning_mode_parameters_invalid_name() -> None:
     """Test invalid cleaning mode names raise RoborockUnsupportedFeature."""
-    status_trait = _create_cleaning_mode_status_trait()
     with pytest.raises(RoborockUnsupportedFeature, match="not supported"):
-        status_trait.get_cleaning_mode_parameters("invalid_mode")
+        resolve_cleaning_mode("invalid_mode")
 
 
 async def test_set_cleaning_mode(
@@ -240,7 +262,7 @@ async def test_set_cleaning_mode(
     """Test setting the high-level cleaning mode."""
     status_trait = _create_cleaning_mode_status_trait()
     status_trait._rpc_channel = mock_rpc_channel  # type: ignore[assignment]
-    await status_trait.set_cleaning_mode(CleaningModes.CUSTOM)
+    await status_trait.set_cleaning_mode(CleaningMode.CUSTOM)
 
     mock_rpc_channel.send_command.assert_called_once_with(
         RoborockCommand.SET_CLEAN_MOTOR_MODE,
@@ -259,11 +281,11 @@ def test_cleaning_mode_options_with_smart_mode() -> None:
     status_trait = _create_cleaning_mode_status_trait(is_smart_clean_mode_set_supported=True)
 
     assert status_trait.cleaning_mode_options == [
-        CleaningModes.VACUUM,
-        CleaningModes.VAC_AND_MOP,
-        CleaningModes.MOP,
-        CleaningModes.CUSTOM,
-        CleaningModes.SMART_MODE,
+        CleaningMode.VACUUM,
+        CleaningMode.VAC_AND_MOP,
+        CleaningMode.MOP,
+        CleaningMode.CUSTOM,
+        CleaningMode.SMART_MODE,
     ]
 
 
@@ -271,7 +293,7 @@ def test_get_cleaning_mode_parameters_with_brush_up_mop() -> None:
     """Test mop-only uses the brush-up mode when supported."""
     status_trait = _create_cleaning_mode_status_trait(is_support_main_brush_up_down_supported=True)
 
-    assert status_trait.get_cleaning_mode_parameters(CleaningModes.MOP) == [
+    assert get_cleaning_mode_parameters(CleaningMode.MOP, status_trait._device_features_trait) == [
         {
             "fan_power": VacuumModes.OFF_RAISE_MAIN_BRUSH.code,
             "water_box_mode": WaterModes.STANDARD.code,
@@ -287,19 +309,19 @@ def test_get_cleaning_mode_parameters_without_clean_route_setting() -> None:
         is_customized_clean_supported=False,
     )
 
-    assert status_trait.get_cleaning_mode_parameters(CleaningModes.VACUUM) == [
+    assert get_cleaning_mode_parameters(CleaningMode.VACUUM, status_trait._device_features_trait) == [
         {
             "fan_power": VacuumModes.BALANCED.code,
             "water_box_mode": WaterModes.OFF.code,
         }
     ]
-    assert status_trait.get_cleaning_mode_parameters(CleaningModes.VAC_AND_MOP) == [
+    assert get_cleaning_mode_parameters(CleaningMode.VAC_AND_MOP, status_trait._device_features_trait) == [
         {
             "fan_power": VacuumModes.BALANCED.code,
             "water_box_mode": WaterModes.STANDARD.code,
         }
     ]
-    assert status_trait.get_cleaning_mode_parameters(CleaningModes.MOP) == [
+    assert get_cleaning_mode_parameters(CleaningMode.MOP, status_trait._device_features_trait) == [
         {
             "fan_power": VacuumModes.OFF.code,
             "water_box_mode": WaterModes.STANDARD.code,
@@ -311,26 +333,41 @@ def test_get_cleaning_mode_parameters_water_slide_device() -> None:
     """Water-slide devices should use a slide-compatible water code, not 202."""
     status_trait = _create_cleaning_mode_status_trait(is_water_slide_mode_supported=True)
 
-    assert status_trait.get_cleaning_mode_parameters(CleaningModes.VACUUM) == [
+    assert get_cleaning_mode_parameters(CleaningMode.VACUUM, status_trait._device_features_trait) == [
         {
             "fan_power": VacuumModes.BALANCED.code,
             "water_box_mode": WaterModes.OFF.code,
             "mop_mode": CleanRoutes.STANDARD.code,
         }
     ]
-    assert status_trait.get_cleaning_mode_parameters(CleaningModes.VAC_AND_MOP) == [
+    assert get_cleaning_mode_parameters(CleaningMode.VAC_AND_MOP, status_trait._device_features_trait) == [
         {
             "fan_power": VacuumModes.BALANCED.code,
             "water_box_mode": WaterModes.PURE_WATER_FLOW_MIDDLE.code,
             "mop_mode": CleanRoutes.STANDARD.code,
         }
     ]
-    assert status_trait.get_cleaning_mode_parameters(CleaningModes.MOP) == [
+    assert get_cleaning_mode_parameters(CleaningMode.MOP, status_trait._device_features_trait) == [
         {
             "fan_power": VacuumModes.OFF.code,
             "water_box_mode": WaterModes.PURE_WATER_FLOW_MIDDLE.code,
             "mop_mode": CleanRoutes.STANDARD.code,
         }
+    ]
+
+
+def test_cleaning_mode_options_water_slide_device() -> None:
+    """Water-slide devices should not expose unsupported custom or smart water modes."""
+    status_trait = _create_cleaning_mode_status_trait(
+        is_water_slide_mode_supported=True,
+        is_customized_clean_supported=True,
+        is_smart_clean_mode_set_supported=True,
+    )
+
+    assert status_trait.cleaning_mode_options == [
+        CleaningMode.VACUUM,
+        CleaningMode.VAC_AND_MOP,
+        CleaningMode.MOP,
     ]
 
 
@@ -341,7 +378,7 @@ def test_current_cleaning_mode_gentle_not_mop_without_pure_mop() -> None:
     status_trait.water_box_mode = WaterModes.STANDARD.code
     status_trait.mop_mode = CleanRoutes.STANDARD.code
 
-    assert status_trait.current_cleaning_mode == CleaningModes.VAC_AND_MOP
+    assert status_trait.current_cleaning_mode == CleaningMode.VAC_AND_MOP
 
 
 def test_water_slide_mode_mapping() -> None:

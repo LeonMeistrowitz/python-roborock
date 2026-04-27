@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import typing
 from enum import StrEnum
+from typing import TypeVar
 
 from ...exceptions import RoborockUnsupportedFeature
 from ..code_mappings import RoborockModeEnum
@@ -70,7 +71,16 @@ class WashTowelModes(RoborockModeEnum):
     SUPER_DEEP = ("super_deep", 8)
 
 
-class CleaningModes(StrEnum):
+class CleaningMode(StrEnum):
+    """High-level cleaning intent derived from the lower-level motor settings.
+
+    Prefer this abstraction when you want to present or switch between the
+    user-facing cleaning behaviors exposed by the app. The lower-level
+    `VacuumModes`, `WaterModes`, and `CleanRoutes` enums are still useful for
+    advanced tuning, but most integrations should treat them as implementation
+    details of a single high-level cleaning mode.
+    """
+
     VACUUM = "vacuum"
     VAC_AND_MOP = "vac_and_mop"
     MOP = "mop"
@@ -87,6 +97,8 @@ WATER_SLIDE_MODE_MAPPING: dict[int, WaterModes] = {
     248: WaterModes.PURE_WATER_SUPER_BEGIN,
     250: WaterModes.PURE_WATER_FLOW_END,
 }
+
+ModeEnumT = TypeVar("ModeEnumT", bound=RoborockModeEnum)
 
 
 def get_wash_towel_modes(features: DeviceFeatures) -> list[WashTowelModes]:
@@ -184,18 +196,25 @@ def get_water_mode_mapping(features: DeviceFeatures) -> dict[int, str]:
     return {mode.code: mode.value for mode in get_water_modes(features)}
 
 
-def get_cleaning_mode_options(features: DeviceFeatures) -> list[CleaningModes]:
-    """Get the supported high-level cleaning modes for the device."""
+def get_cleaning_mode_options(features: DeviceFeatures) -> list[CleaningMode]:
+    """Return the supported high-level cleaning modes for the device.
+
+    These options are the preferred user-facing choices because they bundle the
+    correct fan, water, and mop-route settings together for the device. Callers
+    should generally present these instead of mixing lower-level mode enums
+    unless they explicitly need fine-grained control.
+    """
     if not features.is_support_water_mode:
         return []
 
-    options = [CleaningModes.VACUUM, CleaningModes.VAC_AND_MOP]
+    supported_water_modes = get_water_modes(features)
+    options = [CleaningMode.VACUUM, CleaningMode.VAC_AND_MOP]
     if features.is_pure_clean_mop_supported:
-        options.append(CleaningModes.MOP)
-    if features.is_customized_clean_supported:
-        options.append(CleaningModes.CUSTOM)
-    if features.is_smart_clean_mode_set_supported:
-        options.append(CleaningModes.SMART_MODE)
+        options.append(CleaningMode.MOP)
+    if features.is_customized_clean_supported and WaterModes.CUSTOMIZED in supported_water_modes:
+        options.append(CleaningMode.CUSTOM)
+    if features.is_smart_clean_mode_set_supported and WaterModes.SMART_MODE in supported_water_modes:
+        options.append(CleaningMode.SMART_MODE)
     return options
 
 
@@ -207,75 +226,107 @@ def get_mop_only_vacuum_mode(features: DeviceFeatures) -> VacuumModes:
     return VacuumModes.OFF
 
 
-def _get_default_mopping_water_code(features: DeviceFeatures) -> int:
-    """Pick a sensible default water code when mopping for the device."""
+def _get_default_mopping_water_mode(features: DeviceFeatures) -> WaterModes:
+    """Pick a sensible default water mode when mopping for the device."""
     # Water-slide devices use a disjoint set of water codes; pick a mid-flow
     # slide code instead of the standard 202, which they don't accept.
     if features.is_water_slide_mode_supported:
-        return WaterModes.PURE_WATER_FLOW_MIDDLE.code
-    return WaterModes.STANDARD.code
+        return WaterModes.PURE_WATER_FLOW_MIDDLE
+    return WaterModes.STANDARD
 
 
-def _get_clean_motor_mode_params(mode: CleaningModes, features: DeviceFeatures) -> tuple[int, int, int]:
-    """Return (fan_power, water_box_mode, mop_mode) codes for the high-level mode."""
-    if mode == CleaningModes.VACUUM:
-        return (VacuumModes.BALANCED.code, WaterModes.OFF.code, CleanRoutes.STANDARD.code)
-    if mode == CleaningModes.VAC_AND_MOP:
-        return (VacuumModes.BALANCED.code, _get_default_mopping_water_code(features), CleanRoutes.STANDARD.code)
-    if mode == CleaningModes.MOP:
+def _get_clean_motor_mode_params(
+    mode: CleaningMode,
+    features: DeviceFeatures,
+) -> tuple[VacuumModes, WaterModes, CleanRoutes]:
+    """Return (fan_power, water_box_mode, mop_mode) enums for the high-level mode."""
+    if mode == CleaningMode.VACUUM:
+        return (VacuumModes.BALANCED, WaterModes.OFF, CleanRoutes.STANDARD)
+    if mode == CleaningMode.VAC_AND_MOP:
+        return (VacuumModes.BALANCED, _get_default_mopping_water_mode(features), CleanRoutes.STANDARD)
+    if mode == CleaningMode.MOP:
         return (
-            get_mop_only_vacuum_mode(features).code,
-            _get_default_mopping_water_code(features),
-            CleanRoutes.STANDARD.code,
+            get_mop_only_vacuum_mode(features),
+            _get_default_mopping_water_mode(features),
+            CleanRoutes.STANDARD,
         )
-    if mode == CleaningModes.CUSTOM:
-        return (VacuumModes.CUSTOMIZED.code, WaterModes.CUSTOMIZED.code, CleanRoutes.CUSTOMIZED.code)
-    if mode == CleaningModes.SMART_MODE:
-        return (VacuumModes.SMART_MODE.code, WaterModes.SMART_MODE.code, CleanRoutes.SMART_MODE.code)
+    if mode == CleaningMode.CUSTOM:
+        return (VacuumModes.CUSTOMIZED, WaterModes.CUSTOMIZED, CleanRoutes.CUSTOMIZED)
+    if mode == CleaningMode.SMART_MODE:
+        return (VacuumModes.SMART_MODE, WaterModes.SMART_MODE, CleanRoutes.SMART_MODE)
     raise RoborockUnsupportedFeature(f"Cleaning mode {mode.value!r} is not supported")
 
 
-def get_cleaning_mode_parameters(cleaning_mode: str | CleaningModes, features: DeviceFeatures) -> list[dict[str, int]]:
-    """Get the RPC payload for switching the high-level cleaning mode."""
+def resolve_cleaning_mode(cleaning_mode: str | CleaningMode) -> CleaningMode:
+    """Resolve a string or enum into a CleaningMode value."""
+    if isinstance(cleaning_mode, CleaningMode):
+        return cleaning_mode
     try:
-        mode = CleaningModes(cleaning_mode)
+        return CleaningMode(cleaning_mode)
     except ValueError as err:
         raise RoborockUnsupportedFeature(f"Cleaning mode {cleaning_mode!r} is not supported") from err
-    if mode not in get_cleaning_mode_options(features):
-        raise RoborockUnsupportedFeature(f"Cleaning mode {mode.value!r} is not supported")
 
-    fan_power, water_box_mode, mop_mode = _get_clean_motor_mode_params(mode, features)
-    params: dict[str, int] = {"fan_power": fan_power, "water_box_mode": water_box_mode}
+
+def get_cleaning_mode_parameters(cleaning_mode: CleaningMode, features: DeviceFeatures) -> list[dict[str, int]]:
+    """Get the RPC payload for switching the high-level cleaning mode."""
+    if cleaning_mode not in get_cleaning_mode_options(features):
+        raise RoborockUnsupportedFeature(f"Cleaning mode {cleaning_mode.value!r} is not supported")
+
+    fan_power, water_box_mode, mop_mode = _get_clean_motor_mode_params(cleaning_mode, features)
+    params: dict[str, int] = {"fan_power": fan_power.code, "water_box_mode": water_box_mode.code}
     if features.is_clean_route_setting_supported:
-        params["mop_mode"] = mop_mode
+        params["mop_mode"] = mop_mode.code
     return [params]
 
 
+def _resolve_mode_code(value: int | ModeEnumT | None, mode_cls: type[ModeEnumT]) -> ModeEnumT | None:
+    """Resolve a raw code or enum into a RoborockModeEnum."""
+    if value is None:
+        return None
+    if isinstance(value, mode_cls):
+        return value
+    return mode_cls.from_code_optional(int(value))
+
+
+def _resolve_clean_mode(value: int | VacuumModes | None, features: DeviceFeatures) -> VacuumModes | None:
+    """Resolve a vacuum mode code, accounting for feature-specific code aliases."""
+    if value is None or isinstance(value, VacuumModes):
+        return value
+    if value == VacuumModes.OFF.code:
+        if features.is_pure_clean_mop_supported:
+            return get_mop_only_vacuum_mode(features)
+        return VacuumModes.GENTLE
+    return VacuumModes.from_code_optional(value)
+
+
 def get_current_cleaning_mode(
-    clean_mode: int | None,
-    water_mode: int | None,
-    mop_mode: int | None,
+    clean_mode: int | VacuumModes | None,
+    water_mode: int | WaterModes | None,
+    mop_mode: int | CleanRoutes | None,
     features: DeviceFeatures,
-) -> CleaningModes | None:
+) -> CleaningMode | None:
     """Classify the current high-level cleaning mode from individual mode codes."""
     if not features.is_support_water_mode:
         return None
-    if clean_mode is None or water_mode is None:
+    clean_mode_enum = _resolve_clean_mode(clean_mode, features)
+    water_mode_enum = _resolve_mode_code(water_mode, WaterModes)
+    mop_mode_enum = _resolve_mode_code(mop_mode, CleanRoutes)
+    if clean_mode_enum is None or water_mode_enum is None:
         return None
 
-    if is_smart_mode_set(water_mode, clean_mode, mop_mode):
-        return CleaningModes.SMART_MODE
-    if is_mode_customized(clean_mode, water_mode, mop_mode):
-        return CleaningModes.CUSTOM
-    if water_mode != WaterModes.OFF.code:
+    if is_smart_mode_set(water_mode_enum, clean_mode_enum, mop_mode_enum):
+        return CleaningMode.SMART_MODE
+    if is_mode_customized(clean_mode_enum, water_mode_enum, mop_mode_enum):
+        return CleaningMode.CUSTOM
+    if water_mode_enum != WaterModes.OFF:
         try:
-            if clean_mode == get_mop_only_vacuum_mode(features).code:
-                return CleaningModes.MOP
+            if clean_mode_enum == get_mop_only_vacuum_mode(features):
+                return CleaningMode.MOP
         except RoborockUnsupportedFeature:
             pass
-    if water_mode == WaterModes.OFF.code:
-        return CleaningModes.VACUUM
-    return CleaningModes.VAC_AND_MOP
+    if water_mode_enum == WaterModes.OFF:
+        return CleaningMode.VACUUM
+    return CleaningMode.VAC_AND_MOP
 
 
 def is_mode_customized(
