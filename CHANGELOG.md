@@ -2,6 +2,31 @@
 
 <!-- version list -->
 
+## v5.9.0 (2026-04-29)
+
+### Chores
+
+- Address review feedback for dock_state
+  ([#821](https://github.com/Python-roborock/python-roborock/pull/821),
+  [`3fdb963`](https://github.com/Python-roborock/python-roborock/commit/3fdb963401c8e81a39faf9ce5c11e9ecec303d91))
+
+### Features
+
+- Implement RoborockDockState synthesis and RoborockChargeStatus enum
+  ([#821](https://github.com/Python-roborock/python-roborock/pull/821),
+  [`3fdb963`](https://github.com/Python-roborock/python-roborock/commit/3fdb963401c8e81a39faf9ce5c11e9ecec303d91))
+
+- Implement RoborockDockState synthesis and RoborockChargeStatus enum for improved device status
+  reporting ([#821](https://github.com/Python-roborock/python-roborock/pull/821),
+  [`3fdb963`](https://github.com/Python-roborock/python-roborock/commit/3fdb963401c8e81a39faf9ce5c11e9ecec303d91))
+
+### Refactoring
+
+- Centralize trait update listener and dps converter
+  ([#820](https://github.com/Python-roborock/python-roborock/pull/820),
+  [`d125afb`](https://github.com/Python-roborock/python-roborock/commit/d125afbd53b03e883e539bddc28faef836be8cb9))
+
+
 ## v5.8.0 (2026-04-26)
 
 ### Features
